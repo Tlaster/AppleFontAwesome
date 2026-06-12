@@ -1,0 +1,12 @@
+{
+  "info" : {
+    "author" : "xcode",
+    "version" : 1
+  },
+  "symbols" : [
+    {
+      "filename" : "arrow-up-from-water-pump.svg",
+      "idiom" : "universal"
+    }
+  ]
+}
