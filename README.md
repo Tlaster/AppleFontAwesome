@@ -2,6 +2,8 @@
 
 Swift Package wrapper for Font Awesome SVG symbols on Apple platforms.
 
+Misskey and Nostr compatibility symbols are included for Flare-style social platform icon coverage; see `NOTICE.md`.
+
 ## Generate
 
 ```sh

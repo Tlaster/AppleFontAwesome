@@ -18,3 +18,10 @@ files in the Font Awesome Free download are licensed under the MIT License.
 
 Brand icons are trademarks of their respective owners. Use brand icons only to
 represent the company, product, or service to which they refer.
+
+## Flare Compatibility Symbols
+
+This package also includes Misskey and Nostr symbol templates carried over from
+the Flare app so downstream Apple targets can use the same typed icon API for
+all social platform icons. These compatibility symbols are not Font Awesome
+official icons.
