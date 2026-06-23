@@ -1,0 +1,12 @@
+{
+  "info" : {
+    "author" : "xcode",
+    "version" : 1
+  },
+  "symbols" : [
+    {
+      "filename" : "down-long.svg",
+      "idiom" : "universal"
+    }
+  ]
+}
