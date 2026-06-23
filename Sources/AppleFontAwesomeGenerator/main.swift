@@ -1,28 +1,49 @@
 import Foundation
 
-struct Icon: Comparable {
-    let assetName: String
-    let caseName: String
-    let sourceURL: URL
+struct MetadataIcon: Decodable {
+    let unicode: String
+    let free: [String]
+}
 
-    static func < (lhs: Icon, rhs: Icon) -> Bool {
-        lhs.assetName < rhs.assetName
+struct GeneratedIcon: Comparable {
+    let rawValue: String
+    let caseName: String
+    let unicode: String
+    let style: String
+
+    static func < (lhs: GeneratedIcon, rhs: GeneratedIcon) -> Bool {
+        lhs.rawValue < rhs.rawValue
     }
 }
 
 enum GeneratorError: Error, CustomStringConvertible {
     case missingArgument
     case sourceDirectoryNotFound(String)
+    case metadataNotFound(String)
+    case fontsDirectoryNotFound(String)
+    case fontFileNotFound(String)
 
     var description: String {
         switch self {
         case .missingArgument:
-            "Usage: swift run apple-font-awesome-generate <font-awesome-svg-directory> [package-root]"
+            "Usage: swift run apple-font-awesome-generate <font-awesome-desktop-package-directory> [package-root]"
         case .sourceDirectoryNotFound(let path):
-            "Font Awesome SVG directory does not exist: \(path)"
+            "Font Awesome desktop package directory does not exist: \(path)"
+        case .metadataNotFound(let path):
+            "Font Awesome metadata file does not exist: \(path)"
+        case .fontsDirectoryNotFound(let path):
+            "Font Awesome OTF directory does not exist: \(path)"
+        case .fontFileNotFound(let path):
+            "Font Awesome font file does not exist: \(path)"
         }
     }
 }
+
+let fontFileNames = [
+    "Font Awesome 7 Free-Solid-900",
+    "Font Awesome 7 Free-Regular-400",
+    "Font Awesome 7 Brands-Regular-400",
+]
 
 do {
     let fileManager = FileManager.default
@@ -37,6 +58,18 @@ do {
         throw GeneratorError.sourceDirectoryNotFound(sourceURL.path)
     }
 
+    let metadataURL = sourceURL
+        .appendingPathComponent("metadata", isDirectory: true)
+        .appendingPathComponent("icons.json")
+    guard fileManager.fileExists(atPath: metadataURL.path) else {
+        throw GeneratorError.metadataNotFound(metadataURL.path)
+    }
+
+    let sourceFontsURL = sourceURL.appendingPathComponent("otfs", isDirectory: true)
+    guard fileManager.fileExists(atPath: sourceFontsURL.path, isDirectory: &isDirectory), isDirectory.boolValue else {
+        throw GeneratorError.fontsDirectoryNotFound(sourceFontsURL.path)
+    }
+
     let packageRoot: URL
     if arguments.count > 1 {
         packageRoot = URL(fileURLWithPath: String(arguments.dropFirst().first!)).standardizedFileURL
@@ -47,52 +80,98 @@ do {
     let targetRoot = packageRoot.appendingPathComponent("Sources/AppleFontAwesome", isDirectory: true)
     let generatedRoot = targetRoot.appendingPathComponent("Generated", isDirectory: true)
     let resourcesRoot = targetRoot.appendingPathComponent("Resources", isDirectory: true)
-    let assetCatalog = resourcesRoot.appendingPathComponent("FontAwesome.xcassets", isDirectory: true)
+    let fontsRoot = resourcesRoot.appendingPathComponent("Fonts", isDirectory: true)
 
-    let icons = try discoverIcons(in: sourceURL)
+    let metadata = try loadMetadata(from: metadataURL)
+    let icons = generateIcons(from: metadata)
 
     try recreateDirectory(generatedRoot)
     try recreateDirectory(resourcesRoot)
-    try fileManager.createDirectory(at: assetCatalog, withIntermediateDirectories: true)
+    try fileManager.createDirectory(at: fontsRoot, withIntermediateDirectories: true)
+    try copyFonts(from: sourceFontsURL, to: fontsRoot)
 
-    try writeRootAssetCatalogContents(to: assetCatalog)
-    try writeAssets(for: icons, to: assetCatalog)
     let generatedSwift = generatedRoot.appendingPathComponent("FontAwesomeIcon.swift")
     try writeEnum(for: icons, to: generatedSwift)
 
     print("Generated \(icons.count) Font Awesome icons")
-    print("Assets: \(assetCatalog.path)")
+    print("Fonts: \(fontsRoot.path)")
     print("Swift: \(generatedSwift.path)")
 } catch {
     fputs("\(error)\n", stderr)
     exit(1)
 }
 
-func discoverIcons(in sourceURL: URL) throws -> [Icon] {
-    let fileManager = FileManager.default
-    let fileNames = try fileManager.contentsOfDirectory(atPath: sourceURL.path)
-        .filter { !$0.hasPrefix(".") }
+func loadMetadata(from url: URL) throws -> [String: MetadataIcon] {
+    let data = try Data(contentsOf: url)
+    return try JSONDecoder().decode([String: MetadataIcon].self, from: data)
+}
 
+func generateIcons(from metadata: [String: MetadataIcon]) -> [GeneratedIcon] {
     var usedCaseNames: [String: Int] = [:]
-    var icons: [Icon] = []
+    var icons: [GeneratedIcon] = []
 
-    for fileName in fileNames where fileName.hasSuffix(".svg") {
-        let path = (sourceURL.path as NSString).appendingPathComponent(fileName)
-        var isDirectory: ObjCBool = false
-        guard fileManager.fileExists(atPath: path, isDirectory: &isDirectory), !isDirectory.boolValue else {
+    for name in metadata.keys.sorted() {
+        guard let icon = metadata[name] else {
+            continue
+        }
+        let styles = Set(icon.free)
+
+        if styles.contains("brands") {
+            icons.append(
+                makeIcon(
+                    rawValue: name,
+                    unicode: icon.unicode,
+                    style: "brands",
+                    usedCaseNames: &usedCaseNames
+                )
+            )
             continue
         }
 
-        let assetName = String(fileName.dropLast(4))
-        let baseCaseName = swiftCaseName(for: assetName)
-        let index = usedCaseNames[baseCaseName, default: 0]
-        usedCaseNames[baseCaseName] = index + 1
-        let caseName = index == 0 ? baseCaseName : "\(baseCaseName)\(index + 1)"
+        if styles.contains("regular") {
+            icons.append(
+                makeIcon(
+                    rawValue: name,
+                    unicode: icon.unicode,
+                    style: "regular",
+                    usedCaseNames: &usedCaseNames
+                )
+            )
+        }
 
-        icons.append(Icon(assetName: assetName, caseName: caseName, sourceURL: URL(fileURLWithPath: path)))
+        if styles.contains("solid") {
+            let rawValue = styles.contains("regular") ? "\(name).fill" : name
+            icons.append(
+                makeIcon(
+                    rawValue: rawValue,
+                    unicode: icon.unicode,
+                    style: "solid",
+                    usedCaseNames: &usedCaseNames
+                )
+            )
+        }
     }
 
     return icons.sorted()
+}
+
+func makeIcon(
+    rawValue: String,
+    unicode: String,
+    style: String,
+    usedCaseNames: inout [String: Int]
+) -> GeneratedIcon {
+    let baseCaseName = swiftCaseName(for: rawValue)
+    let index = usedCaseNames[baseCaseName, default: 0]
+    usedCaseNames[baseCaseName] = index + 1
+    let caseName = index == 0 ? baseCaseName : "\(baseCaseName)\(index + 1)"
+
+    return GeneratedIcon(
+        rawValue: rawValue,
+        caseName: caseName,
+        unicode: unicode.lowercased(),
+        style: style
+    )
 }
 
 func recreateDirectory(_ url: URL) throws {
@@ -103,51 +182,22 @@ func recreateDirectory(_ url: URL) throws {
     try fileManager.createDirectory(at: url, withIntermediateDirectories: true)
 }
 
-func writeRootAssetCatalogContents(to assetCatalog: URL) throws {
-    try writeJSON(
-        """
-        {
-          "info" : {
-            "author" : "xcode",
-            "version" : 1
-          }
-        }
-        """,
-        to: assetCatalog.appendingPathComponent("Contents.json")
-    )
-}
-
-func writeAssets(for icons: [Icon], to assetCatalog: URL) throws {
+func copyFonts(from sourceFontsURL: URL, to fontsRoot: URL) throws {
     let fileManager = FileManager.default
-    for icon in icons {
-        let symbolSet = assetCatalog.appendingPathComponent("\(icon.assetName).symbolset", isDirectory: true)
-        try fileManager.createDirectory(at: symbolSet, withIntermediateDirectories: true)
+    for fontFileName in fontFileNames {
+        let source = sourceFontsURL.appendingPathComponent("\(fontFileName).otf")
+        guard fileManager.fileExists(atPath: source.path) else {
+            throw GeneratorError.fontFileNotFound(source.path)
+        }
 
-        let svgFileName = "\(icon.assetName).svg"
-        let targetSVG = symbolSet.appendingPathComponent(svgFileName)
-        try fileManager.copyItem(at: icon.sourceURL, to: targetSVG)
-
-        try writeJSON(
-            """
-            {
-              "info" : {
-                "author" : "xcode",
-                "version" : 1
-              },
-              "symbols" : [
-                {
-                  "filename" : "\(jsonEscaped(svgFileName))",
-                  "idiom" : "universal"
-                }
-              ]
-            }
-            """,
-            to: symbolSet.appendingPathComponent("Contents.json")
+        try fileManager.copyItem(
+            at: source,
+            to: fontsRoot.appendingPathComponent("\(fontFileName).otf")
         )
     }
 }
 
-func writeEnum(for icons: [Icon], to url: URL) throws {
+func writeEnum(for icons: [GeneratedIcon], to url: URL) throws {
     var output = """
     // Generated by AppleFontAwesomeGenerator. Do not edit manually.
 
@@ -156,7 +206,7 @@ func writeEnum(for icons: [Icon], to url: URL) throws {
     """
 
     for icon in icons {
-        output += "    case \(icon.caseName) = \"\(swiftEscaped(icon.assetName))\"\n"
+        output += "    case \(icon.caseName) = \"\(swiftEscaped(icon.rawValue))\"\n"
     }
 
     output += """
@@ -165,8 +215,50 @@ func writeEnum(for icons: [Icon], to url: URL) throws {
             rawValue
         }
 
-        public var assetName: String {
+        public var name: String {
             rawValue
+        }
+
+        public var character: String {
+            switch self {
+
+    """
+
+    for icon in icons {
+        output += "        case .\(icon.caseName):\n"
+        output += "            \"\\u{\(icon.unicode)}\"\n"
+    }
+
+    output += """
+            }
+        }
+
+        public var unicode: String {
+            switch self {
+
+    """
+
+    for icon in icons {
+        output += "        case .\(icon.caseName):\n"
+        output += "            \"\(swiftEscaped(icon.unicode))\"\n"
+    }
+
+    output += """
+            }
+        }
+
+        public var style: FontAwesomeStyle {
+            switch self {
+
+    """
+
+    for icon in icons {
+        output += "        case .\(icon.caseName):\n"
+        output += "            .\(icon.style)\n"
+    }
+
+    output += """
+            }
         }
     }
 
@@ -175,16 +267,12 @@ func writeEnum(for icons: [Icon], to url: URL) throws {
     try output.write(to: url, atomically: true, encoding: .utf8)
 }
 
-func writeJSON(_ value: String, to url: URL) throws {
-    try value.write(to: url, atomically: true, encoding: .utf8)
-}
-
-func swiftCaseName(for assetName: String) -> String {
+func swiftCaseName(for rawValue: String) -> String {
     var outputBytes: [UInt8] = []
     var shouldUppercaseNext = false
     var hasOutput = false
 
-    for byte in assetName.utf8 {
+    for byte in rawValue.utf8 {
         if isASCIIAlphanumeric(byte) {
             let outputByte: UInt8
             if !hasOutput {
@@ -255,10 +343,6 @@ func swiftEscaped(_ value: String) -> String {
     value
         .replacingOccurrences(of: "\\", with: "\\\\")
         .replacingOccurrences(of: "\"", with: "\\\"")
-}
-
-func jsonEscaped(_ value: String) -> String {
-    swiftEscaped(value)
 }
 
 func isSwiftKeyword(_ value: String) -> Bool {

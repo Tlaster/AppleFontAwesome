@@ -2,8 +2,8 @@
 
 ## Font Awesome Free
 
-This package includes generated Apple asset catalog resources derived from
-Font Awesome Free icon assets.
+This package includes Font Awesome Free font files and generated Swift metadata
+derived from Font Awesome Free icon metadata.
 
 - Project: Font Awesome Free
 - Copyright: Fonticons, Inc.
@@ -11,17 +11,9 @@ Font Awesome Free icon assets.
 - Source repository: https://github.com/FortAwesome/Font-Awesome
 - License details: see LICENSE-FONT-AWESOME.txt and https://fontawesome.com/license/free
 
-Font Awesome Free licenses different asset types separately. SVG icon assets
-are licensed under the Creative Commons Attribution 4.0 International License.
-Font files are licensed under SIL Open Font License 1.1. Non-font and non-icon
-files in the Font Awesome Free download are licensed under the MIT License.
+Font Awesome Free licenses different asset types separately. Font files are
+licensed under SIL Open Font License 1.1. Non-font and non-icon files in the
+Font Awesome Free download are licensed under the MIT License.
 
 Brand icons are trademarks of their respective owners. Use brand icons only to
 represent the company, product, or service to which they refer.
-
-## Flare Compatibility Symbols
-
-This package also includes Misskey and Nostr symbol templates carried over from
-the Flare app so downstream Apple targets can use the same typed icon API for
-all social platform icons. These compatibility symbols are not Font Awesome
-official icons.
